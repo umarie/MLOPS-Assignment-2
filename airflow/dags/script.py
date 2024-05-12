@@ -1,17 +1,13 @@
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from datetime import datetime
-# from pydrive.auth import GoogleAuth
-# from pydrive.drive import GoogleDrive
+import os
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import os
+import logging
 
-# Initialize Google Drive authentication
-# gauth = GoogleAuth()
-# gauth.LocalWebserverAuth()
-# drive = GoogleDrive(gauth)
+logging.basicConfig(level=logging.INFO)
 
 default_args = {
     'owner': 'airflow',
@@ -19,13 +15,14 @@ default_args = {
 }
 
 dag = DAG(
-    'my_dag',
+    'dvc_and_github_integration',
     default_args=default_args,
     schedule_interval='@daily',
+    catchup=False,
 )
 
 def extract_data():
-    # Extract links and titles from dawn.com and BBC.com
+    logging.info("Extracting data...")
     urls = ['https://www.dawn.com/', 'https://www.bbc.com/']
     extracted_data = []
     for url in urls:
@@ -36,29 +33,35 @@ def extract_data():
         extracted_data.append({'url': url, 'links': links, 'titles': titles})
     df = pd.DataFrame(extracted_data)
     df.to_csv('extracted_data.csv', index=False)
+    logging.info("Data extraction complete.")
 
 def transform_data():
-    # Preprocess the extracted data (e.g., clean and format text)
+    logging.info("Transforming data...")
     df = pd.read_csv('extracted_data.csv')
     df['cleaned_titles'] = df['titles'].apply(lambda x: x.strip().lower())
     df.to_csv('transformed_data.csv', index=False)
+    logging.info("Data transformation complete.")
 
-def store_data():
-    # Store the processed data on Google Drive
-    file_path = 'transformed_data.csv'
-    file = drive.CreateFile({'title': os.path.basename(file_path), 'parents': [{'id': 'u/1/folders/1O7Xmsv_6Qaq4eBtRR2SKsZyEIcYQ-7sy'}]})
-    file.SetContentFile(file_path)
-    file.Upload()
-
-def add_to_dvc():
-    # Command to add data to DVC
+def add_and_commit_to_dvc():
+    logging.info("Adding and committing data to DVC...")
     add_command = 'dvc add transformed_data.csv'
-    return os.system(add_command)
-
-def commit_to_dvc():
-    # Command to commit changes to DVC
+    os.system(add_command)
     commit_command = 'dvc commit'
-    return os.system(commit_command)
+    os.system(commit_command)
+    logging.info("Data added and committed to DVC.")
+
+def push_to_dvc_remote():
+    logging.info("Pushing data to DVC remote...")
+    os.system('dvc remote add -d MlopsAssignment02 gdrive://1O7Xmsv_6Qaq4eBtRR2SKsZyEIcYQ-7sy')
+    os.system('dvc push')
+    logging.info("Data pushed to DVC remote.")
+
+def push_to_github():
+    logging.info("Pushing changes to GitHub...")
+    os.system('git add. ')
+    os.system('git commit -m "Update data"')
+    os.system('git push origin master')
+    logging.info("Changes pushed to GitHub.")
 
 extract_task = PythonOperator(
     task_id='extract_data',
@@ -72,22 +75,21 @@ transform_task = PythonOperator(
     dag=dag,
 )
 
-store_task = PythonOperator(
-    task_id='store_data',
-    python_callable=store_data,
-    dag=dag,
-)
-
 add_to_dvc_task = PythonOperator(
-    task_id='add_to_dvc',
-    python_callable=add_to_dvc,
+    task_id='add_and_commit_to_dvc',
+    python_callable=add_and_commit_to_dvc,
     dag=dag,
 )
 
-commit_to_dvc_task = PythonOperator(
-    task_id='commit_to_dvc',
-    python_callable=commit_to_dvc,
+push_to_dvc_remote_task = PythonOperator(
+    task_id='push_to_dvc_remote',
+    python_callable=push_to_dvc_remote,
     dag=dag,
 )
 
-extract_task >> transform_task >> store_task >> add_to_dvc_task >> commit_to_dvc_task
+push_to_github_task = PythonOperator(
+    task_id='push_to_github',
+    python_callable=push_to_github,
+    dag=dag,
+)
+extract_task >> transform_task >> add_to_dvc_task >> push_to_dvc_remote_task >> push_to_github_task
